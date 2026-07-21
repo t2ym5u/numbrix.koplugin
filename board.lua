@@ -22,17 +22,28 @@ local DIRS = {
 -- Hamiltonian path generation via DFS (orthogonal)
 -- ---------------------------------------------------------------------------
 
+-- Node budget per start attempt: bounds worst-case latency if the Warnsdorff
+-- heuristic backtracks badly on a given start (see hidato.koplugin's board.lua
+-- for the sibling bug this generator originally shared: the old success
+-- check `step > total` was unreachable since dfs is never called past
+-- step==total, so the search could never terminate successfully).
+local NODE_BUDGET_PER_START = 20000
+
 local function generatePath(n)
     local total   = n * n
     local visited = emptyBoolGrid(n)
     local path    = {}
     local pos     = emptyGrid(n)
+    local nodes   = 0
 
     local function dfs(r, c, step)
-        if step > total then return true end
+        nodes = nodes + 1
+        if nodes > NODE_BUDGET_PER_START then return false end
         visited[r][c] = true
         pos[r][c]     = step
         path[step]    = { r, c }
+
+        if step == total then return true end
 
         -- Warnsdorff heuristic: sort by fewest onward moves
         local moves = {}
@@ -83,6 +94,7 @@ local function generatePath(n)
         visited = emptyBoolGrid(n)
         pos     = emptyGrid(n)
         path    = {}
+        nodes   = 0
     end
 
     -- Fallback: snake pattern (always has a valid orthogonal Hamiltonian path)
