@@ -3,5 +3,5 @@ return {
     name        = "numbrix",
     fullname    = _("Numbrix"),
     description = _("Snake-like number path puzzle"),
-    version     = "1.1.5",
+    version     = "1.1.6",
 }
