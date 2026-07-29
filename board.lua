@@ -113,6 +113,104 @@ local function generatePath(n)
 end
 
 -- ---------------------------------------------------------------------------
+-- Uniqueness check
+-- ---------------------------------------------------------------------------
+
+-- Counts Hamiltonian-path completions (up to `limit`) consistent with the
+-- given fixed cells, placing numbers 1..n*n in path order (each must land on
+-- an orthogonally-adjacent unoccupied cell, or the pre-fixed cell if given).
+-- Returns (solutions_found, exhausted); exhausted=true means node_budget was
+-- hit before the search concluded, so the count isn't proof. Mirrors
+-- sudokukiller.koplugin/board.lua's countCageSolutions.
+local NODE_BUDGET_UNIQUENESS = 200000
+
+local function countCompletions(puzzle, given, n, limit, node_budget)
+    local total = n * n
+    local cell_of_num = {}
+    local num_of_cell = {}
+    for r = 1, n do num_of_cell[r] = {} end
+
+    local solutions, nodes, exhausted = 0, 0, false
+
+    local function search(num)
+        if solutions >= limit or exhausted then return end
+        nodes = nodes + 1
+        if nodes > node_budget then exhausted = true; return end
+        if num > total then solutions = solutions + 1; return end
+
+        local given_pos = nil
+        if num == 1 then
+            for r = 1, n do
+                for c = 1, n do
+                    if given[r][c] and puzzle[r][c] == 1 then given_pos = { r, c }; break end
+                end
+                if given_pos then break end
+            end
+            if given_pos then
+                cell_of_num[1] = given_pos
+                num_of_cell[given_pos[1]][given_pos[2]] = 1
+                search(2)
+                num_of_cell[given_pos[1]][given_pos[2]] = nil
+            else
+                for r = 1, n do
+                    for c = 1, n do
+                        if not num_of_cell[r][c] then
+                            cell_of_num[1] = { r, c }
+                            num_of_cell[r][c] = 1
+                            search(2)
+                            num_of_cell[r][c] = nil
+                            if solutions >= limit or exhausted then return end
+                        end
+                    end
+                end
+            end
+            return
+        end
+
+        for r = 1, n do
+            for c = 1, n do
+                if given[r][c] and puzzle[r][c] == num then given_pos = { r, c }; break end
+            end
+            if given_pos then break end
+        end
+
+        local prev = cell_of_num[num - 1]
+        local candidates = {}
+        for _, d in ipairs(DIRS) do
+            local nr, nc = prev[1] + d[1], prev[2] + d[2]
+            if nr >= 1 and nr <= n and nc >= 1 and nc <= n and not num_of_cell[nr][nc] then
+                candidates[#candidates + 1] = { nr, nc }
+            end
+        end
+        if given_pos then
+            local ok = false
+            for _, cand in ipairs(candidates) do
+                if cand[1] == given_pos[1] and cand[2] == given_pos[2] then ok = true; break end
+            end
+            if ok then
+                cell_of_num[num] = given_pos
+                num_of_cell[given_pos[1]][given_pos[2]] = num
+                search(num + 1)
+                num_of_cell[given_pos[1]][given_pos[2]] = nil
+            end
+        else
+            for _, cand in ipairs(candidates) do
+                if not given[cand[1]][cand[2]] then
+                    cell_of_num[num] = cand
+                    num_of_cell[cand[1]][cand[2]] = num
+                    search(num + 1)
+                    num_of_cell[cand[1]][cand[2]] = nil
+                    if solutions >= limit or exhausted then return end
+                end
+            end
+        end
+    end
+
+    search(1)
+    return solutions, exhausted
+end
+
+-- ---------------------------------------------------------------------------
 -- NumbrixBoard
 -- ---------------------------------------------------------------------------
 
@@ -149,15 +247,22 @@ function NumbrixBoard:generate(difficulty)
     self.solution = sol
 
     local given_ratio = GIVEN_RATIOS[self.difficulty] or 0.25
+
+    -- Start fully revealed, then dig cells one at a time (like sudoku-
+    -- common's hole-digging), verifying with countCompletions after each
+    -- tentative removal and putting the cell back if that broke uniqueness.
+    -- Unlike the old "shuffle positions, keep top ratio%" approach (which
+    -- never checked whether the remaining clues still pin down a single
+    -- path), this guarantees every generated puzzle has exactly one
+    -- solution. Endpoints (1 and n*n) always stay given -- removing either
+    -- is never attempted.
     local puzzle = emptyGrid(n)
     local given  = emptyBoolGrid(n)
-
-    local r1, c1 = path[1][1], path[1][2]
-    local rN, cN = path[total][1], path[total][2]
-    puzzle[r1][c1] = 1
-    given[r1][c1]  = true
-    puzzle[rN][cN] = total
-    given[rN][cN]  = true
+    for k = 1, total do
+        local r, c = path[k][1], path[k][2]
+        puzzle[r][c] = k
+        given[r][c]  = true
+    end
 
     local intermediate = {}
     for k = 2, total - 1 do
@@ -167,13 +272,23 @@ function NumbrixBoard:generate(difficulty)
         local j = math.random(i)
         intermediate[i], intermediate[j] = intermediate[j], intermediate[i]
     end
-    local num_extra = math.floor((total - 2) * given_ratio)
-    for i = 1, num_extra do
-        local k  = intermediate[i]
-        local rk = path[k][1]
-        local ck = path[k][2]
-        puzzle[rk][ck] = k
-        given[rk][ck]  = true
+
+    local num_extra   = math.floor((total - 2) * given_ratio)
+    local target_hide = (total - 2) - num_extra
+    local hidden      = 0
+    for _, k in ipairs(intermediate) do
+        if hidden >= target_hide then break end
+        local r, c = path[k][1], path[k][2]
+        local saved = puzzle[r][c]
+        puzzle[r][c] = 0
+        given[r][c]  = false
+        local solutions, exhausted = countCompletions(puzzle, given, n, 2, NODE_BUDGET_UNIQUENESS)
+        if not exhausted and solutions == 1 then
+            hidden = hidden + 1
+        else
+            puzzle[r][c] = saved
+            given[r][c]  = true
+        end
     end
 
     self.puzzle      = puzzle
