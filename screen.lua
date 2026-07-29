@@ -7,6 +7,7 @@ local function lrequire(name)
     return package.loaded[key]
 end
 
+local Button          = require("ui/widget/button")
 local ButtonTable     = require("ui/widget/buttontable")
 local Device          = require("device")
 local FrameContainer  = require("ui/widget/container/framecontainer")
@@ -108,30 +109,28 @@ function NumbrixScreen:buildLayout()
     local n     = self.board.n
     local total = n * n
 
-    local digit_row1 = {}
-    for d = 1, 5 do
-        local dv = d
-        digit_row1[#digit_row1 + 1] = {
-            text = tostring(dv),
-            callback = function() self:onDigitKey(dv) end,
-        }
+    -- Digit keypad: digits 0-9 in two rows of 5, drawn as real bordered buttons
+    local digit_btn_width = math.floor(button_width / 5)
+    local function makeDigitRow(digits)
+        local row = HorizontalGroup:new{}
+        for _, dv in ipairs(digits) do
+            table.insert(row, Button:new{
+                text       = tostring(dv),
+                width      = digit_btn_width,
+                margin     = Size.margin.small,
+                bordersize = Size.border.button,
+                radius     = Size.radius.button,
+                padding    = Size.padding.buttontable,
+                callback   = function() self:onDigitKey(dv) end,
+            })
+        end
+        return row
     end
-    local digit_row2 = {}
-    for d = 6, 9 do
-        local dv = d
-        digit_row2[#digit_row2 + 1] = {
-            text = tostring(dv),
-            callback = function() self:onDigitKey(dv) end,
-        }
-    end
-    digit_row2[#digit_row2 + 1] = {
-        text = "0",
-        callback = function() self:onDigitKey(0) end,
-    }
-    local digit_buttons = ButtonTable:new{
-        shrink_unneeded_width = true,
-        width   = button_width,
-        buttons = { digit_row1, digit_row2 },
+    local digit_buttons = VerticalGroup:new{
+        align = "center",
+        makeDigitRow({ 1, 2, 3, 4, 5 }),
+        VerticalSpan:new{ width = Size.span.vertical_default },
+        makeDigitRow({ 6, 7, 8, 9, 0 }),
     }
 
     local bottom_buttons = ButtonTable:new{
