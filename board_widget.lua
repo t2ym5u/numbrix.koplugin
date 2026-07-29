@@ -32,6 +32,7 @@ function NumbrixBoardWidget:init()
     self.cols     = n
     self.rows     = n
     self.size_ratio = 0.82
+    self.max_value  = n * n
     GridWidgetBase.init(self)
     self._n = n
 end

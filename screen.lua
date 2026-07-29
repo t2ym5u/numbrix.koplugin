@@ -196,7 +196,9 @@ function NumbrixScreen:onDigitKey(d)
         self:_commitValue(r, c, d)
     else
         if self.pending_digit == nil then
-            if d == 0 then return end
+            -- A leading "0" is allowed: it's the only way to reach a
+            -- single-digit value (1-9), since every other first digit
+            -- becomes the tens place -- "0" then "5" combines to 5.
             self.pending_digit = d
             self:updateStatus(T(_("Entering: %1 (tap another digit or Erase)"), d))
         else
