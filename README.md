@@ -16,6 +16,7 @@ Fill the grid with consecutive numbers 1 to N². Each pair of consecutive number
 - **Three difficulty levels** — Easy, Medium, Hard
 - **Path view** — see the current sequence highlighted
 - **Check** — validates orthogonal adjacency constraints
+- **Hint** — two taps: the first says which cell is about to give, the second acts on it. A cell that contradicts the solution is always reported before a fresh one is revealed
 - **Auto-save** — puzzle state saved and restored on next launch
 
 ## Installation
