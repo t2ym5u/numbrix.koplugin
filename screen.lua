@@ -141,6 +141,7 @@ function NumbrixScreen:buildLayout()
         buttons = {{
             { text = _("Erase"), callback = function() self:onErase() end },
             { text = _("Check"), callback = function() self:onCheck() end },
+            { text = _("Hint"), callback = function() self:onHint() end },
         }},
     }
 
