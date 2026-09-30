@@ -1,4 +1,5 @@
 local grid_utils = require("grid_utils")
+local Hint      = require("hint")
 
 local emptyGrid     = grid_utils.emptyGrid
 local emptyBoolGrid = grid_utils.emptyBoolGrid
@@ -379,6 +380,14 @@ end
 -- ---------------------------------------------------------------------------
 -- Serialization
 -- ---------------------------------------------------------------------------
+
+Hint.install(NumbrixBoard, {
+    getUser     = function(b, r, c) return b.user[r][c] end,
+    getSolution = function(b, r, c) return b.solution[r][c] end,
+    isGiven     = function(b, r, c) return b:isGiven(r, c) end,
+    setCell     = function(b, r, c, v) return b:setCell(r, c, v) end,
+    clearCell   = function(b, r, c) return b:clearCell(r, c) end,
+})
 
 function NumbrixBoard:serialize()
     local n = self.n
