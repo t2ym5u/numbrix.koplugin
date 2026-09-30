@@ -4,7 +4,7 @@ A Numbrix puzzle plugin for [KOReader](https://github.com/koreader/koreader).
 
 ## Screenshot
 
-*(Screenshot to be added.)*
+![Screenshot](images/numbrix.png)
 
 ## Rules
 
