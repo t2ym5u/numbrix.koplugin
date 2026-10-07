@@ -10,8 +10,10 @@ local function lrequire(name)
 end
 
 local PluginBase     = require("plugin_base")
-local _              = require("gettext")
+local _              = require("i18n")
 local NumbrixScreen  = lrequire("screen")
+
+require("i18n").extend(lrequire("i18n_fr"))
 
 local NumbrixPlugin = PluginBase:extend{
     name      = "numbrix",
