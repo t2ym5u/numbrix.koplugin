@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-10-30
+
+### Added
+- "New game" once the puzzle is solved: the action bar shows it in place of
+  Erase, Check and Hint, so the next puzzle no longer needs the menu.
+- The rules now explain how to enter a number: two digits on the keypad, 0
+  then 7 for 7.
+
+### Changed
+- Redesigned play screen, in line with the other games: a full-width action
+  bar, the unified number pad (two even rows of five), a larger board that
+  fills the available room, and one thick frame around it. The status line
+  reads "size · difficulty · Empty: n" and wraps in landscape instead of
+  being cut off.
+- Title-bar menu shows "Difficulty: …" in full (was "Diff: …").
+- New README screenshot.
+
+### Fixed
+- Using Hint wiped the saved game: the board was saved as nothing. And when
+  a hint fills the last cell, the status now shows the win message.
+- The board's closing grid line was drawn just past its edge.
+
 ## [1.2.2] - 2026-10-07
 
 ### Fixed

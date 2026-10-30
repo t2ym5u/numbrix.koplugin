@@ -7,9 +7,6 @@ local function lrequire(name)
     return package.loaded[key]
 end
 
-local Button          = require("ui/widget/button")
-local ButtonTable     = require("ui/widget/buttontable")
-local Device          = require("device")
 local FrameContainer  = require("ui/widget/container/framecontainer")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan  = require("ui/widget/horizontalspan")
@@ -25,8 +22,6 @@ local MenuHelper         = require("menu_helper")
 local NumbrixBoard       = lrequire("board")
 local NumbrixBoardWidget = lrequire("board_widget")
 
-local DeviceScreen = Device.screen
-
 local GRID_SIZES = { 5, 6 }
 
 local GAME_RULES_EN = _([[
@@ -40,6 +35,8 @@ Rules:
 • Some numbers are given as clues; the rest must be deduced.
 
 The result is a single "snake" path that visits every cell exactly once.
+
+Tap a cell to select it, then type its number as two digits on the keypad: 0 then 7 for 7, 1 then 5 for 15.
 ]])
 
 local GAME_RULES_FR = [[
@@ -53,6 +50,8 @@ Règles :
 • Certains nombres sont donnés comme indices ; les autres doivent être déduits.
 
 Le résultat est un chemin "serpent" unique visitant chaque case exactement une fois.
+
+Appuyez sur une case pour la sélectionner, puis tapez son numéro en deux chiffres sur le clavier : 0 puis 7 pour 7, 1 puis 5 pour 15.
 ]]
 
 local NumbrixScreen = ScreenBase:extend{}
@@ -74,30 +73,7 @@ function NumbrixScreen:serializeState()
 end
 
 function NumbrixScreen:buildLayout()
-    local sw           = DeviceScreen:getWidth()
     local is_landscape = self:isLandscape()
-
-    self.board_widget = NumbrixBoardWidget:new{
-        board          = self.board,
-        onCellSelected = function(r, c) self:onCellSelected(r, c) end,
-    }
-    if self.selected then
-        self.board_widget:setSelected(self.selected.r, self.selected.c)
-    end
-
-    local board_frame = FrameContainer:new{
-        padding = Size.padding.large,
-        margin  = Size.margin.default,
-        self.board_widget,
-    }
-
-    local board_frame_size  = self.board_widget.size + (Size.padding.large + Size.margin.default) * 2
-    local right_panel_width = sw - board_frame_size - Size.span.horizontal_default
-    local button_width = is_landscape
-        and math.max(right_panel_width - Size.span.horizontal_default, 100)
-        or  math.floor(sw * 0.9)
-
-    self.status_text:setMaxWidth(is_landscape and button_width or board_frame_size)
 
     local title_bar = self:buildTitleBar(_("Numbrix"), function()
         return {
@@ -108,72 +84,61 @@ function NumbrixScreen:buildLayout()
         }
     end)
 
-    local n     = self.board.n
-    local total = n * n
-
-    -- Digit keypad: digits 0-9 in two rows of 5, drawn as real bordered buttons
-    local digit_btn_width = math.floor(button_width / 5)
-    local function makeDigitRow(digits)
-        local row = HorizontalGroup:new{}
-        for _, dv in ipairs(digits) do
-            table.insert(row, Button:new{
-                text       = tostring(dv),
-                width      = digit_btn_width,
-                margin     = Size.margin.small,
-                bordersize = Size.border.button,
-                radius     = Size.radius.button,
-                padding    = Size.padding.buttontable,
-                callback   = function() self:onDigitKey(dv) end,
-            })
-        end
-        return row
+    -- Digit keypad 1-9 and 0, two rows of 5.
+    -- Player types 1-2 digits to enter a number (e.g. "2" for 2, "25" for 25)
+    local keys = {}
+    for _, d in ipairs({ 1, 2, 3, 4, 5, 6, 7, 8, 9, 0 }) do
+        local dv = d
+        keys[#keys + 1] = { text = tostring(d), callback = function() self:onDigitKey(dv) end }
     end
-    local digit_buttons = VerticalGroup:new{
-        align = "center",
-        makeDigitRow({ 1, 2, 3, 4, 5 }),
-        VerticalSpan:new{ width = Size.span.vertical_default },
-        makeDigitRow({ 6, 7, 8, 9, 0 }),
-    }
+    local number_pad = self:buildNumberPad(keys)
 
-    local bottom_buttons = ButtonTable:new{
-        shrink_unneeded_width = true,
-        width   = button_width,
-        buttons = {{
-            { text = _("Erase"), callback = function() self:onErase() end },
-            { text = _("Check"), callback = function() self:onCheck() end },
-            { text = _("Hint"), callback = function() self:onHint() end },
-        }},
-    }
+    -- Bottom bar
+    local action_bar = self:buildActionBar({
+        { text = _("Erase"), callback = function() self:onErase() end },
+        { text = _("Check"), callback = function() self:onCheck() end },
+        { text = _("Hint"),  callback = function() self:onHint() end },
+    })
 
-    local footer = VerticalGroup:new{
+    self.status_text:setMaxWidth(self:getControlsWidth())
+    local controls = VerticalGroup:new{
         align = "center",
-        digit_buttons,
+        self.status_text,
         VerticalSpan:new{ width = Size.span.vertical_large },
-        bottom_buttons,
+        number_pad,
+        VerticalSpan:new{ width = Size.span.vertical_default },
+        action_bar,
+    }
+
+    -- The widget draws its own outer border, so the frame only pads.
+    local frame_pad = Size.padding.large
+    local budget_w, budget_h = self:getBoardBudget(title_bar, controls)
+    self.board_widget = NumbrixBoardWidget:new{
+        max_size       = math.min(budget_w, budget_h) - 2 * frame_pad,
+        board          = self.board,
+        onCellSelected = function(r, c) self:onCellSelected(r, c) end,
+    }
+    if self.selected then
+        self.board_widget:setSelected(self.selected.r, self.selected.c)
+    end
+    local board_frame = FrameContainer:new{
+        padding    = frame_pad,
+        margin     = 0,
+        bordersize = 0,
+        self.board_widget,
     }
 
     if is_landscape then
-        local right_panel = VerticalGroup:new{
-            align = "center",
-            self.status_text,
-            VerticalSpan:new{ width = Size.span.vertical_large },
-            footer,
-        }
         local content = HorizontalGroup:new{
-            align  = "center",
+            align = "center",
             board_frame,
-            HorizontalSpan:new{ width = Size.span.horizontal_default },
-            right_panel,
+            HorizontalSpan:new{ width = self:getGutter() },
+            controls,
         }
         self:buildLandscapeLayout(title_bar, content)
     else
-        local content = VerticalGroup:new{
-            align = "center",
-            board_frame,
-            VerticalSpan:new{ width = Size.span.vertical_large },
-            self.status_text,
-        }
-        self:buildPortraitLayout(title_bar, content, footer)
+        self:buildPortraitLayout(title_bar, board_frame,
+            VerticalGroup:new{ align = "center", controls, VerticalSpan:new{ width = self:getGutter() } })
     end
     self:updateStatus()
 end
@@ -282,7 +247,7 @@ function NumbrixScreen:openSizeMenu()
         sizes[#sizes + 1] = { id = sz, text = sz .. "\xC3\x97" .. sz }
     end
     MenuHelper.openSizeMenu{
-        title     = _("Select grid size"),
+        title     = _("Select size"),
         sizes     = sizes,
         current   = self.plugin:getSetting("grid_n", 5),
         parent    = self,
@@ -320,10 +285,12 @@ function NumbrixScreen:updateStatus(msg)
         local n         = self.board.n
         local diff      = self.plugin:getSetting("difficulty", "easy")
         local label     = MenuHelper.DIFFICULTY_LABELS[diff] or diff
-        status = T(_("%1\xC3\x97%2 (1\xE2\x80\x93%3) \xC2\xB7 %4 \xC2\xB7 Empty: %5"),
-            n, n, n * n, label, remaining)
+        status = self:joinStatus(T("%1×%2", n, n), label, T(_("Empty: %1"), remaining))
     end
     ScreenBase.updateStatus(self, status)
+    -- Every move, hint, undo and reveal ends with a status update, so this
+    -- is where the bar learns that the round ended (or was undone).
+    self:refreshActionBar()
 end
 
 function NumbrixScreen:getSizeButtonText()
@@ -334,7 +301,11 @@ end
 function NumbrixScreen:getDiffButtonText()
     local diff  = self.plugin:getSetting("difficulty", "easy")
     local label = MenuHelper.DIFFICULTY_LABELS[diff] or diff
-    return T(_("Diff: %1"), label)
+    return T(_("Difficulty: %1"), label)
+end
+
+function NumbrixScreen:isRoundOver()
+    return self.board:isSolved()
 end
 
 return NumbrixScreen
