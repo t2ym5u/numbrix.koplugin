@@ -2,5 +2,5 @@ local _ = require("gettext")
 return {
     fullname    = _("Numbrix"),
     description = _("Snake-like number path puzzle"),
-    version     = "1.3.0",
+    version     = "1.4.0",
 }
