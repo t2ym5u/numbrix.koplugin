@@ -31,7 +31,6 @@ function NumbrixBoardWidget:init()
     local n       = self.board and self.board.n or 5
     self.cols     = n
     self.rows     = n
-    self.size_ratio = 0.82
     self.max_value  = n * n
     GridWidgetBase.init(self)
     self._n = n
@@ -80,13 +79,17 @@ function NumbrixBoardWidget:paintTo(bb, x, y)
     -- -----------------------------------------------------------------------
     -- Grid lines
     -- -----------------------------------------------------------------------
+    -- The outer border is the board's only frame, so it is drawn thick
+    -- enough to read as one.
     local thin  = Size.line.thin  or 1
-    local thick = Size.line.thick or 2
+    local thick = math.max(Size.line.thick or 2, math.floor(cell * 0.05))
 
     for i = 0, n do
         local lw = (i == 0 or i == n) and thick or thin
-        drawLine(bb, x + math.floor(i * cell), y, lw, self.dimen.h, C_LINE)
-        drawLine(bb, x, y + math.floor(i * cell), self.dimen.w, lw, C_LINE)
+        -- The last line is drawn inside the widget, not past its edge.
+        local p  = math.floor(i * cell) - (i == n and lw or 0)
+        drawLine(bb, x + p, y, lw, self.dimen.h, C_LINE)
+        drawLine(bb, x, y + p, self.dimen.w, lw, C_LINE)
     end
 
     -- -----------------------------------------------------------------------
