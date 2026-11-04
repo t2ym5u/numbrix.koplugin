@@ -143,4 +143,51 @@ describe("NumbrixBoard", function()
             assert.is_false(b:load({}))
         end)
     end)
+
+    describe("empty / countCompletions", function()
+        it("new{ empty = true } builds no puzzle, and load fills it", function()
+            local saved = Board:new{ n = 6, difficulty = "hard" }:serialize()
+            local b = Board:new{ n = 6, empty = true }
+            assert.is_nil(b.solution)
+            assert.is_true(b:load(saved))
+            assert.are.same(saved, b:serialize())
+        end)
+
+        it("leaves every generated puzzle with exactly one solution", function()
+            for _, n in ipairs({ 5, 6 }) do
+                for _, d in ipairs({ "easy", "medium", "hard" }) do
+                    for seed = 1, 15 do
+                        math.randomseed(seed)
+                        local b = Board:new{ n = n, difficulty = d }
+                        local count, exhausted = Board._countCompletions(
+                            b.puzzle, b.given, n, 2, 1e7)
+                        assert.is_false(exhausted)
+                        assert.are.equal(1, count)
+                    end
+                end
+            end
+        end)
+
+        it("counts the paths of a tiny grid", function()
+            -- 2x2 with only 1 given, at (1,1): the path goes either way round.
+            local puzzle = { { 1, 0 }, { 0, 0 } }
+            local given  = { { true, false }, { false, false } }
+            assert.are.equal(2, (Board._countCompletions(puzzle, given, 2, 10, 1e6)))
+            -- 3 opposite 1 still leaves both ways round.
+            puzzle[2][2], given[2][2] = 3, true
+            assert.are.equal(2, (Board._countCompletions(puzzle, given, 2, 10, 1e6)))
+            -- 2 can never sit diagonally from 1.
+            puzzle[2][2] = 2
+            assert.are.equal(0, (Board._countCompletions(puzzle, given, 2, 10, 1e6)))
+        end)
+
+        it("generates 5x5 puzzles quickly (some starts used to burn a whole search budget)", function()
+            local t = os.clock()
+            for seed = 1, 60 do
+                math.randomseed(seed)
+                Board:new{ n = 5, difficulty = "hard" }
+            end
+            assert.is_true(os.clock() - t < 3, "60 puzzles took " .. (os.clock() - t) .. " s")
+        end)
+    end)
 end)

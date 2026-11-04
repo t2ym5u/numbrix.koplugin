@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-11-04
+
+### Changed
+- Much faster 5×5 puzzles: on an odd grid the number path can only start on
+  a corner-coloured square, and the generator used to try the other squares
+  too, each time searching until it gave up. 5×5 went from up to 70 ms on a
+  desktop (about 2 s on a Kobo) to a few milliseconds; the puzzles are the
+  same.
+- The uniqueness check skips cells too far from the next given number, and
+  no longer scans the whole grid to find each given number: 6×6 Hard is
+  about a third faster.
+- New game and opening the game each build one puzzle instead of two (the
+  board generated one on creation that the screen then replaced), so
+  today's Daily Challenge grid is a different one than with 1.4.3.
+- A "Generating puzzle…" progress bar appears if generation takes more than
+  a fraction of a second.
+
 ## [1.4.3] - 2026-11-03
 
 ### Changed

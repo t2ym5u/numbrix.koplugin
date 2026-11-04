@@ -19,6 +19,7 @@ local T               = require("ffi/util").template
 
 local ScreenBase         = require("screen_base")
 local MenuHelper         = require("menu_helper")
+local GenProgress        = require("gen_progress")
 local NumbrixBoard       = lrequire("board")
 local NumbrixBoardWidget = lrequire("board_widget")
 
@@ -59,9 +60,10 @@ local NumbrixScreen = ScreenBase:extend{}
 function NumbrixScreen:init()
     local state = self.plugin:loadState()
     local n     = self.plugin:getSetting("grid_n", 5)
-    self.board  = NumbrixBoard:new{ n = n }
+    self.board  = NumbrixBoard:new{ n = n, empty = true }
     if not self.board:load(state) then
-        self.board:generate(self.plugin:getSetting("difficulty", "easy"))
+        local diff = self.plugin:getSetting("difficulty", "easy")
+        GenProgress.run(function(on_progress) self.board:generate(diff, on_progress) end)
     end
     self.selected      = nil
     self.pending_digit = nil
@@ -220,8 +222,8 @@ end
 function NumbrixScreen:onNewGame()
     local diff = self.plugin:getSetting("difficulty", "easy")
     local n    = self.plugin:getSetting("grid_n", 5)
-    self.board = NumbrixBoard:new{ n = n }
-    self.board:generate(diff)
+    self.board = NumbrixBoard:new{ n = n, empty = true }
+    GenProgress.run(function(on_progress) self.board:generate(diff, on_progress) end)
     self.selected      = nil
     self.pending_digit = nil
     self.plugin:saveState(self.board:serialize())

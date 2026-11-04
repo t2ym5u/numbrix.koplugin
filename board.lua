@@ -87,15 +87,22 @@ local function generatePath(n)
         starts[i], starts[j] = starts[j], starts[i]
     end
 
+    -- On an odd grid the path alternates checkerboard colours and visits one
+    -- more cell of the corner colour ((r + c) even) than of the other, so it
+    -- can only start on a corner-colour cell. A start on the other colour
+    -- always fails -- after burning the whole node budget -- so skip it. The
+    -- search draws no random numbers, so the puzzles are unchanged.
     for attempt = 1, math.min(50, #starts) do
         local sr, sc = starts[attempt][1], starts[attempt][2]
-        if dfs(sr, sc, 1) then
-            return pos, path
+        if n % 2 == 0 or (sr + sc) % 2 == 0 then
+            if dfs(sr, sc, 1) then
+                return pos, path
+            end
+            visited = emptyBoolGrid(n)
+            pos     = emptyGrid(n)
+            path    = {}
+            nodes   = 0
         end
-        visited = emptyBoolGrid(n)
-        pos     = emptyGrid(n)
-        path    = {}
-        nodes   = 0
     end
 
     -- Fallback: snake pattern (always has a valid orthogonal Hamiltonian path)
@@ -133,20 +140,39 @@ local function countCompletions(puzzle, given, n, limit, node_budget)
 
     local solutions, nodes, exhausted = 0, 0, false
 
+    -- given_at[num] = {r, c} of the given cell holding num: one grid scan
+    -- here instead of one per search node.
+    local given_at = {}
+    for r = 1, n do
+        for c = 1, n do
+            if given[r][c] and puzzle[r][c] > 0 and not given_at[puzzle[r][c]] then
+                given_at[puzzle[r][c]] = { r, c }
+            end
+        end
+    end
+
+    -- next_given[num] = the smallest given number above num. A cell can only
+    -- hold num if that given cell is at most (next - num) steps away, which
+    -- cuts dead branches early without ever dropping a real solution.
+    local next_given = {}
+    for k = total - 1, 1, -1 do
+        next_given[k] = given_at[k + 1] and (k + 1) or next_given[k + 1]
+    end
+    local function reachable(r, c, num)
+        local m = next_given[num]
+        if not m then return true end
+        local g = given_at[m]
+        return math.abs(r - g[1]) + math.abs(c - g[2]) <= m - num
+    end
+
     local function search(num)
         if solutions >= limit or exhausted then return end
         nodes = nodes + 1
         if nodes > node_budget then exhausted = true; return end
         if num > total then solutions = solutions + 1; return end
 
-        local given_pos = nil
+        local given_pos = given_at[num]
         if num == 1 then
-            for r = 1, n do
-                for c = 1, n do
-                    if given[r][c] and puzzle[r][c] == 1 then given_pos = { r, c }; break end
-                end
-                if given_pos then break end
-            end
             if given_pos then
                 cell_of_num[1] = given_pos
                 num_of_cell[given_pos[1]][given_pos[2]] = 1
@@ -166,13 +192,6 @@ local function countCompletions(puzzle, given, n, limit, node_budget)
                 end
             end
             return
-        end
-
-        for r = 1, n do
-            for c = 1, n do
-                if given[r][c] and puzzle[r][c] == num then given_pos = { r, c }; break end
-            end
-            if given_pos then break end
         end
 
         local prev = cell_of_num[num - 1]
@@ -196,7 +215,7 @@ local function countCompletions(puzzle, given, n, limit, node_budget)
             end
         else
             for _, cand in ipairs(candidates) do
-                if not given[cand[1]][cand[2]] then
+                if not given[cand[1]][cand[2]] and reachable(cand[1], cand[2], num) then
                     cell_of_num[num] = cand
                     num_of_cell[cand[1]][cand[2]] = num
                     search(num + 1)
@@ -231,7 +250,9 @@ function NumbrixBoard:new(opts)
         sel_r       = nil,
         sel_c       = nil,
     }, self)
-    obj:generate(obj.difficulty)
+    -- opts.empty: the caller loads a save or generates itself, so don't
+    -- build a puzzle that would be thrown away.
+    if not opts.empty then obj:generate(obj.difficulty) end
     return obj
 end
 
@@ -239,7 +260,9 @@ end
 -- Generate
 -- ---------------------------------------------------------------------------
 
-function NumbrixBoard:generate(difficulty)
+-- on_progress (optional) is called with the fraction done (0..1) after each
+-- dig step, for game-common's GenProgress bar.
+function NumbrixBoard:generate(difficulty, on_progress)
     self.difficulty = difficulty or self.difficulty
     local n         = self.n
     local total     = n * n
@@ -277,8 +300,13 @@ function NumbrixBoard:generate(difficulty)
     local num_extra   = math.floor((total - 2) * given_ratio)
     local target_hide = (total - 2) - num_extra
     local hidden      = 0
-    for _, k in ipairs(intermediate) do
+    for step, k in ipairs(intermediate) do
         if hidden >= target_hide then break end
+        if on_progress then
+            -- Digging stops at whichever comes first: the hide target or
+            -- the end of the candidate list.
+            on_progress(math.max(step / #intermediate, hidden / math.max(1, target_hide)))
+        end
         local r, c = path[k][1], path[k][2]
         local saved = puzzle[r][c]
         puzzle[r][c] = 0
@@ -449,5 +477,7 @@ function NumbrixBoard:load(data)
 end
 
 NumbrixBoard.DIRS = DIRS
+
+NumbrixBoard._countCompletions = countCompletions   -- for the specs
 
 return NumbrixBoard
