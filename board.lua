@@ -8,8 +8,17 @@ local copyGrid      = grid_utils.copyGrid
 local DEFAULT_N          = 5
 local DEFAULT_DIFFICULTY = "easy"
 
--- Fraction of non-endpoint cells revealed as clues
-local GIVEN_RATIOS = { easy = 0.40, medium = 0.25, hard = 0.15 }
+-- logic.lua sits next to this file; load it by path (plugin-own modules
+-- share names across plugins, see docs/dev/PITFALLS.md).
+local _dir  = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])") or "./"
+local Logic = assert(loadfile(_dir .. "logic.lua"))()
+
+-- Difficulty ids; generate() says how each one is graded by logic.lua.
+local LOGIC_LEVELS = { easy = 1, medium = 2, hard = 3 }
+-- Easy keeps at least this share of the clues between 1 and n*n.
+local EASY_GIVEN_RATIO = 0.40
+-- Medium/Hard: paths tried for one that really needs the level's rule.
+local DIG_ATTEMPTS = 6
 
 -- 4-directional adjacency (orthogonal only — the key difference from Hidato)
 local DIRS = {
@@ -123,6 +132,10 @@ end
 -- ---------------------------------------------------------------------------
 -- Uniqueness check
 -- ---------------------------------------------------------------------------
+
+-- Since 1.6.0 the generator grades with logic.lua instead (a grid it fills
+-- by forced steps has exactly one solution); this exhaustive counter stays
+-- as the specs' independent uniqueness check.
 
 -- Counts Hamiltonian-path completions (up to `limit`) consistent with the
 -- given fixed cells, placing numbers 1..n*n in path order (each must land on
@@ -260,26 +273,135 @@ end
 -- Generate
 -- ---------------------------------------------------------------------------
 
--- on_progress (optional) is called with the fraction done (0..1) after each
--- dig step, for game-common's GenProgress bar.
+-- One dig: a random path, then clues removed one at a time in a random
+-- order. A clue is removed if logic.lua, allowed rules up to `tier`, still
+-- fills the whole grid; otherwise it goes back. 1 and n*n always stay.
+-- Every state of the dig is a checked puzzle, so any prefix of the
+-- removals is one too. newDig() draws the path and the order; the dig
+-- table then holds the puzzle as dug so far and its removals (numbers, in
+-- order). Same scheme as hidato.koplugin.
+local function newDig(n)
+    local total = n * n
+    local sol, path = generatePath(n)
+    local puzzle = emptyGrid(n)
+    for k = 1, total do
+        puzzle[path[k][1]][path[k][2]] = k
+    end
+    local order = {}
+    for k = 2, total - 1 do order[#order + 1] = k end
+    for i = #order, 2, -1 do
+        local j = math.random(i)
+        order[i], order[j] = order[j], order[i]
+    end
+    return { n = n, sol = sol, path = path, puzzle = puzzle, order = order, removals = {} }
+end
+
+-- One pass over the clues still shown. Stops once `stop_after` clues are
+-- removed in all. Returns how many this pass removed.
+local function digPass(dig, tier, stop_after, on_progress)
+    local path, puzzle, removals = dig.path, dig.puzzle, dig.removals
+    local removed = 0
+    for i, k in ipairs(dig.order) do
+        if #removals >= stop_after then break end
+        if on_progress then on_progress(i / #dig.order) end
+        local r, c = path[k][1], path[k][2]
+        if puzzle[r][c] ~= 0 then
+            puzzle[r][c] = 0
+            if Logic.solve(puzzle, dig.n, tier) then
+                removals[#removals + 1] = k
+                removed = removed + 1
+            else
+                puzzle[r][c] = k
+            end
+        end
+    end
+    return removed
+end
+
+-- The puzzle after the first `count` removals of the dig.
+local function digPrefix(dig, count)
+    local n, path = dig.n, dig.path
+    local puzzle = emptyGrid(n)
+    for k = 1, n * n do
+        puzzle[path[k][1]][path[k][2]] = k
+    end
+    for i = 1, count do
+        local k = dig.removals[i]
+        puzzle[path[k][1]][path[k][2]] = 0
+    end
+    return puzzle
+end
+
+-- Levels, all graded by logic.lua (no level ever needs a guess):
+--   Easy   dug with tier 1 only (reach + singles), and at least
+--          EASY_GIVEN_RATIO of the clues between 1 and n*n stay.
+--   Hard   dug with tier 2 (neighbours), then with tier 3 (short segments):
+--          the fewest clues; needs the neighbour rule, and the segment rule
+--          whenever tier 3 removed something.
+--   Medium the same dig stopped halfway between Easy's clue count and the
+--          end of tier 2, and never before the first removal tier 1 cannot
+--          solve: needs the neighbour rule, shows more clues than Hard
+--          (and, mostly, fewer than Easy).
+-- (Fewer clues never make a puzzle easier for logic.lua, so "tier 1 can
+-- solve it" switches off once along the dig and a binary search finds it.)
+-- A dig that tier 1 can still solve at the end, or where Medium would equal
+-- Hard, is redone on a new path, a bounded number of times (counted, never
+-- timed: the same seed must give the same puzzle on every device). If all
+-- fail, the last dig is used anyway; it is still solvable without guessing.
+--
+-- on_progress (optional): called with a 0..1 fraction while digging, for
+-- game-common's GenProgress bar.
 function NumbrixBoard:generate(difficulty, on_progress)
     self.difficulty = difficulty or self.difficulty
-    local n         = self.n
-    local total     = n * n
+    local n     = self.n
+    local total = n * n
+    local diff  = LOGIC_LEVELS[self.difficulty] and self.difficulty or "medium"
 
-    local sol, path = generatePath(n)
-    self.solution = sol
+    local easy_removals = (total - 2) - math.floor((total - 2) * EASY_GIVEN_RATIO)
+    local dig, keep
+    if diff == "easy" then
+        dig = newDig(n)
+        digPass(dig, 1, easy_removals, on_progress)
+        keep = #dig.removals
+    else
+        for attempt = 1, DIG_ATTEMPTS do
+            -- Most first attempts succeed: give the first one 80 % of the
+            -- bar and each later one 80 % of what is left.
+            local from, span = 1 - 0.2 ^ (attempt - 1), 0.8 * 0.2 ^ (attempt - 1)
+            local function progress(f)
+                if on_progress then on_progress(from + span * f * 0.5) end
+            end
+            dig = newDig(n)
+            digPass(dig, 2, total, progress)
+            local m = #dig.removals
+            -- First prefix length that tier 1 cannot solve (m + 1: none).
+            local lo, hi = 0, m + 1
+            if Logic.solve(dig.puzzle, n, 1) then lo = m + 1 end
+            while hi - lo > 1 do
+                local mid = math.floor((lo + hi) / 2)
+                if Logic.solve(digPrefix(dig, mid), n, 1) then lo = mid else hi = mid end
+            end
+            local first_l2 = lo + 1
+            local ok = first_l2 <= m
+            local tier3 = 0
+            if ok and (diff == "hard" or first_l2 == m) then
+                tier3 = digPass(dig, 3, total, function(f) progress(1 + f) end)
+            end
+            if diff == "hard" then
+                keep = #dig.removals
+            else
+                -- Halfway between Easy's clue count and the end of tier 2,
+                -- but never before tier 1 fails nor at the very end.
+                local mid = math.floor((easy_removals + m) / 2)
+                keep = math.min(math.max(first_l2, math.min(mid, m - 1)), m)
+            end
+            if ok and (m > first_l2 or tier3 > 0) then break end
+        end
+    end
+    if on_progress then on_progress(1) end
+    self.solution = dig.sol
+    local path, removals = dig.path, dig.removals
 
-    local given_ratio = GIVEN_RATIOS[self.difficulty] or 0.25
-
-    -- Start fully revealed, then dig cells one at a time (like sudoku-
-    -- common's hole-digging), verifying with countCompletions after each
-    -- tentative removal and putting the cell back if that broke uniqueness.
-    -- Unlike the old "shuffle positions, keep top ratio%" approach (which
-    -- never checked whether the remaining clues still pin down a single
-    -- path), this guarantees every generated puzzle has exactly one
-    -- solution. Endpoints (1 and n*n) always stay given -- removing either
-    -- is never attempted.
     local puzzle = emptyGrid(n)
     local given  = emptyBoolGrid(n)
     for k = 1, total do
@@ -287,37 +409,11 @@ function NumbrixBoard:generate(difficulty, on_progress)
         puzzle[r][c] = k
         given[r][c]  = true
     end
-
-    local intermediate = {}
-    for k = 2, total - 1 do
-        intermediate[#intermediate + 1] = k
-    end
-    for i = #intermediate, 2, -1 do
-        local j = math.random(i)
-        intermediate[i], intermediate[j] = intermediate[j], intermediate[i]
-    end
-
-    local num_extra   = math.floor((total - 2) * given_ratio)
-    local target_hide = (total - 2) - num_extra
-    local hidden      = 0
-    for step, k in ipairs(intermediate) do
-        if hidden >= target_hide then break end
-        if on_progress then
-            -- Digging stops at whichever comes first: the hide target or
-            -- the end of the candidate list.
-            on_progress(math.max(step / #intermediate, hidden / math.max(1, target_hide)))
-        end
+    for i = 1, keep do
+        local k = removals[i]
         local r, c = path[k][1], path[k][2]
-        local saved = puzzle[r][c]
         puzzle[r][c] = 0
         given[r][c]  = false
-        local solutions, exhausted = countCompletions(puzzle, given, n, 2, NODE_BUDGET_UNIQUENESS)
-        if not exhausted and solutions == 1 then
-            hidden = hidden + 1
-        else
-            puzzle[r][c] = saved
-            given[r][c]  = true
-        end
     end
 
     self.puzzle      = puzzle

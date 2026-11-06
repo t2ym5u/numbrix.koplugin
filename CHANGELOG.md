@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0] - 2026-11-05
+
+### Changed
+- Every puzzle can now be solved by logic alone, with no guessing. A number
+  is only hidden if the grid can still be filled step by step: how far a
+  number can be from its placed neighbours (counting the odd/even steps of
+  the path), a number with only one possible cell, a cell only one number
+  can reach, and numbers that need a free neighbour for the one before and
+  the one after. Before, a good share of Medium and Hard grids (and some
+  Easy ones) had a single solution that could only be found by trial and
+  error.
+- The three levels are really different now. Easy needs only the simple
+  steps and shows as many numbers as before. Medium needs the neighbour
+  step. Hard shows fewer numbers than Medium and needs the neighbour step
+  more often.
+- The Daily Challenge grid for the day of the update changes once.
+  Games in progress are kept.
+
 ## [1.5.2] - 2026-11-04
 
 ### Fixed
